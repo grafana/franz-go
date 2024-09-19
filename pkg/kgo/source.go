@@ -16,6 +16,29 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
+type recordsPool struct{ p *sync.Pool }
+
+func newRecordsPool() recordsPool {
+	return recordsPool{
+		p: &sync.Pool{New: func() any { return &Record{} }},
+	}
+}
+
+func (p recordsPool) get() *Record {
+	if p.p == nil {
+		return &Record{}
+	}
+	return p.p.Get().(*Record)
+}
+
+func (p recordsPool) put(r *Record) {
+	if p.p == nil {
+		return
+	}
+	*r = Record{} // zero out the record
+	p.p.Put(r)
+}
+
 type readerFrom interface {
 	ReadFrom([]byte) error
 }
@@ -1088,7 +1111,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				continue
 			}
 
-			fp := partOffset.processRespPartition(br, rp, s.cl.cfg.hooks)
+			fp := partOffset.processRespPartition(br, rp, s.cl.cfg.hooks, s.cl.cfg.recordsPool)
 			if fp.Err != nil {
 				if moving := kmove.maybeAddFetchPartition(resp, rp, partOffset.from); moving {
 					strip(topic, partition, fp.Err)
@@ -1261,37 +1284,6 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 	}
 
 	return f, reloadOffsets, preferreds, req.numOffsets == numErrsStripped, updateWhy
-}
-
-// processRespPartition processes all records in all potentially compressed
-// batches (or message sets).
-func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchResponseTopicPartition, hooks hooks) (fp FetchPartition) {
-	if rp.ErrorCode == 0 {
-		o.hwm = rp.HighWatermark
-	}
-	opts := ProcessFetchPartitionOptions{
-		KeepControlRecords: br.cl.cfg.keepControl,
-		Offset:             o.offset,
-		IsolationLevel:     IsolationLevel{br.cl.cfg.isolationLevel},
-		Topic:              o.from.topic,
-		Partition:          o.from.partition,
-	}
-	observeMetrics := func(m FetchBatchMetrics) {
-		hooks.each(func(h Hook) {
-			if h, ok := h.(HookFetchBatchRead); ok {
-				h.OnFetchBatchRead(br.meta, o.from.topic, o.from.partition, m)
-			}
-		})
-	}
-	fp, o.offset = ProcessRespPartition(opts, rp, observeMetrics)
-	if len(fp.Records) > 0 {
-		lastRecord := fp.Records[len(fp.Records)-1]
-		// We adjust the offset separately because it may be larger than the offset of the last record for compacted partitions.
-		o.lastConsumedEpoch = lastRecord.LeaderEpoch
-		o.lastConsumedTime = lastRecord.Timestamp
-	}
-
-	return fp
 }
 
 // ProcessRespPartition processes all records in all potentially compressed batches (or message sets).
@@ -1479,9 +1471,9 @@ func (a aborter) trackAbortedPID(producerID int64) {
 	}
 }
 
-//////////////////////////////////////
+// ////////////////////////////////////
 // processing records to fetch part //
-//////////////////////////////////////
+// ////////////////////////////////////
 
 // readRawRecords reads n records from in and returns them, returning early if
 // there were partial records.
@@ -1507,6 +1499,7 @@ func processRecordBatch(
 	batch *kmsg.RecordBatch,
 	aborter aborter,
 	decompressor *decompressor,
+	recordsPool recordsPool,
 ) (int, int) {
 	if batch.Magic != 2 {
 		fp.Err = fmt.Errorf("unknown batch magic %d", batch.Magic)
@@ -1557,6 +1550,7 @@ func processRecordBatch(
 			fp.Partition,
 			batch,
 			&krecords[i],
+			recordsPool,
 		)
 		o.maybeKeepRecord(fp, record, abortBatch)
 
@@ -1785,9 +1779,9 @@ func (o *ProcessFetchPartitionOptions) maybeKeepRecord(fp *FetchPartition, recor
 	o.Offset = record.Offset + 1
 }
 
-///////////////////////////////
+// /////////////////////////////
 // kmsg.Record to kgo.Record //
-///////////////////////////////
+// /////////////////////////////
 
 func timeFromMillis(millis int64) time.Time {
 	return time.Unix(0, millis*1e6)
@@ -1799,6 +1793,7 @@ func recordToRecord(
 	partition int32,
 	batch *kmsg.RecordBatch,
 	record *kmsg.Record,
+	recordsPool recordsPool,
 ) *Record {
 	h := make([]RecordHeader, 0, len(record.Headers))
 	for _, kv := range record.Headers {
@@ -1807,19 +1802,20 @@ func recordToRecord(
 			Value: kv.Value,
 		})
 	}
+	r := recordsPool.get()
 
-	r := &Record{
-		Key:           record.Key,
-		Value:         record.Value,
-		Headers:       h,
-		Topic:         topic,
-		Partition:     partition,
-		Attrs:         RecordAttrs{uint8(batch.Attributes)},
-		ProducerID:    batch.ProducerID,
-		ProducerEpoch: batch.ProducerEpoch,
-		LeaderEpoch:   batch.PartitionLeaderEpoch,
-		Offset:        batch.FirstOffset + int64(record.OffsetDelta),
-	}
+	r.Key = record.Key
+	r.Value = record.Value
+	r.Headers = h
+	r.Topic = topic
+	r.Partition = partition
+	r.Attrs = RecordAttrs{uint8(batch.Attributes)}
+	r.ProducerID = batch.ProducerID
+	r.ProducerEpoch = batch.ProducerEpoch
+	r.LeaderEpoch = batch.PartitionLeaderEpoch
+	r.Offset = batch.FirstOffset + int64(record.OffsetDelta)
+	r.recordsPool = recordsPool
+
 	if r.Attrs.TimestampType() == 0 {
 		r.Timestamp = timeFromMillis(batch.FirstTimestamp + record.TimestampDelta64)
 	} else {
@@ -1873,9 +1869,9 @@ func v1MessageToRecord(
 	}
 }
 
-//////////////////
+// ////////////////
 // fetchRequest //
-//////////////////
+// ////////////////
 
 type fetchRequest struct {
 	version      int16
