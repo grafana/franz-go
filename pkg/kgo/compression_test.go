@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/pierrec/lz4/v4"
+
+	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
 )
 
 // Regression test for #778.
@@ -78,6 +80,8 @@ func TestCompressDecompress(t *testing.T) {
 		randStr(1 << 8),
 	}
 
+	buffPool := pool.NewBucketedPool(1, 1<<16, 2, func(int) []byte { return make([]byte, 1<<16) })
+
 	var wg sync.WaitGroup
 	for _, produceVersion := range []int16{
 		0, 7,
@@ -110,7 +114,7 @@ func TestCompressDecompress(t *testing.T) {
 							w.Reset()
 
 							got, used := c.compress(w, in, produceVersion)
-							got, err := d.decompress(got, byte(used))
+							got, err := d.decompress(got, byte(used), buffPool)
 							if err != nil {
 								t.Errorf("unexpected decompress err: %v", err)
 								return
@@ -156,7 +160,7 @@ func BenchmarkDecompress(b *testing.B) {
 		b.Run(fmt.Sprint(codec), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				d := newDecompressor()
-				d.decompress(w.Bytes(), byte(codec))
+				d.decompress(w.Bytes(), byte(codec), pool.NewBucketedPool(1, 1<<16, 2, func(int) []byte { return make([]byte, 1<<16) }))
 			}
 		})
 		byteBuffers.Put(w)

@@ -16,6 +16,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"github.com/twmb/franz-go/pkg/kversion"
 	"github.com/twmb/franz-go/pkg/sasl"
+
+	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
 )
 
 // Opt is an option to configure a client.
@@ -151,7 +153,8 @@ type cfg struct {
 	partitions map[string]map[int32]Offset // partitions to directly consume from
 	regex      bool
 
-	recordsPool recordsPool
+	recordsPool          *recordsPool
+	decompressBufferPool *pool.BucketedPool[byte]
 
 	////////////////////////////
 	// CONSUMER GROUP SECTION //
@@ -391,6 +394,11 @@ func (cfg *cfg) validate() error {
 	}
 	cfg.hooks = processedHooks
 
+	// Assume a 2x compression ratio.
+	maxDecompressedBatchSize := int(cfg.maxBytes.load()) * 2
+	cfg.decompressBufferPool = pool.NewBucketedPool[byte](4096, maxDecompressedBatchSize, 2, func(sz int) []byte {
+		return make([]byte, sz)
+	})
 	return nil
 }
 
