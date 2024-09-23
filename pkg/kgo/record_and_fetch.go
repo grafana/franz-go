@@ -154,13 +154,24 @@ type Record struct {
 	//
 	// When reused, record is returned to this pool.
 	recordsPool recordsPool
+
+	// rcBatchBuffer is used to keep track of the raw buffer that this record was
+	// derived from when consuming, after decompression.
+	//
+	// This is used to allow reusing these buffers when record pooling has been enabled
+	// via EnableRecordsPool option.
+	rcBatchBuffer *rcBuffer[byte]
 }
 
 // Reuse releases the record back to the pool.
 //
+//
 // Once this method has been called, any reference to the passed record should be considered invalid by the caller,
 // as it may be reused as a result of future calls to the PollFetches/PollRecords method.
 func (r *Record) Reuse() {
+	if r.rcBatchBuffer != nil {
+		r.rcBatchBuffer.release()
+	}
 	r.recordsPool.put(r)
 }
 

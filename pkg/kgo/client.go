@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"github.com/twmb/franz-go/pkg/sasl"
 )
@@ -453,8 +454,16 @@ func NewClient(opts ...Opt) (*Client, error) {
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Allow reusing decompression buffers if record pooling has been enabled
+	// via EnableRecordsPool option.
+	var decompressorPool *pool.BucketedPool[byte]
+	if cfg.recordsPool.p != nil {
+		decompressorPool = pool.NewBucketedPool[byte](1024, maxDecompressBufferSize, 2, func(size int) []byte {
+			return make([]byte, 0, size)
+		})
+	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	cl := &Client{
 		cfg:       cfg,
 		opts:      opts,

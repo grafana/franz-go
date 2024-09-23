@@ -71,7 +71,7 @@ func TestCompressDecompress(t *testing.T) {
 	}
 
 	t.Parallel()
-	d := newDecompressor()
+	d := newDecompressor(nil)
 	inputs := [][]byte{
 		randStr(1 << 2),
 		randStr(1 << 5),
@@ -155,7 +155,7 @@ func BenchmarkDecompress(b *testing.B) {
 
 		b.Run(fmt.Sprint(codec), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				d := newDecompressor()
+				d := newDecompressor(nil)
 				d.decompress(w.Bytes(), byte(codec))
 			}
 		})

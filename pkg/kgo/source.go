@@ -9,12 +9,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/twmb/franz-go/pkg/kmsg"
 
 	"github.com/twmb/franz-go/pkg/kbin"
 	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 type recordsPool struct{ p *sync.Pool }
@@ -38,6 +39,35 @@ func (p recordsPool) put(r *Record) {
 	}
 	*r = Record{} // zero out the record
 	p.p.Put(r)
+}
+
+// rcBuffer is a reference counted buffer.
+//
+// The internal buffer will be sent back to the pool after calling release
+// when the internal count reaches zero.
+type rcBuffer[T any] struct {
+	refCount atomic.Int32
+	buffer   []T
+	pool     *pool.BucketedPool[T]
+}
+
+func newRCBuffer[T any](buffer []T, pool *pool.BucketedPool[T]) *rcBuffer[T] {
+	return &rcBuffer[T]{buffer: buffer, pool: pool}
+}
+
+func (b *rcBuffer[T]) add(delta int32) {
+	b.refCount.Add(delta)
+}
+
+func (b *rcBuffer[T]) release() {
+	if b.refCount.Add(-1) == 0 {
+		b.pool.Put(b.buffer)
+		b.buffer = nil
+		return
+	}
+	if b.refCount.Load() < 0 {
+		panic("rcBuffer released too many times")
+	}
 }
 
 type readerFrom interface {
@@ -1579,6 +1609,11 @@ func processRecordBatch(
 		}
 	}()
 
+	var rcBuff *rcBuffer[byte]
+	if decompressor.outBufferPool != nil {
+		rcBuff = newRCBuffer(rawRecords, decompressor.outBufferPool)
+	}
+
 	abortBatch := aborter.shouldAbortBatch(batch)
 	for i := range krecords {
 		record := recordToRecord(
@@ -1588,8 +1623,8 @@ func processRecordBatch(
 			&krecords[i],
 			recordsPool,
 		)
-		o.maybeKeepRecord(fp, record, abortBatch)
 
+		o.maybeKeepRecord(fp, record, rcBuff, abortBatch)
 		if abortBatch && record.Attrs.IsControl() {
 			// A control record has a key and a value where the key
 			// is int16 version and int16 type. Aborted records
@@ -1709,7 +1744,7 @@ func processV1Message(
 		return false
 	}
 	record := v1MessageToRecord(o.Topic, fp.Partition, message)
-	o.maybeKeepRecord(fp, record, false)
+	o.maybeKeepRecord(fp, record, nil, false)
 	return true
 }
 
@@ -1787,7 +1822,7 @@ func processV0Message(
 		return false
 	}
 	record := v0MessageToRecord(o.Topic, fp.Partition, message)
-	o.maybeKeepRecord(fp, record, false)
+	o.maybeKeepRecord(fp, record, nil, false)
 	return true
 }
 
@@ -1795,8 +1830,8 @@ func processV0Message(
 //
 // If the record is being aborted or the record is a control record and the
 // client does not want to keep control records, this does not keep the record.
-func (o *ProcessFetchPartitionOptions) maybeKeepRecord(fp *FetchPartition, record *Record, abort bool) {
-	if record.Offset < o.Offset {
+func (o *cursorOffsetNext) maybeKeepRecord(fp *FetchPartition, record *Record, rcBuff *rcBuffer[byte], abort bool) {
+			if record.Offset < o.Offset {
 		// We asked for offset 5, but that was in the middle of a
 		// batch; we got offsets 0 thru 4 that we need to skip.
 		return
@@ -1807,6 +1842,10 @@ func (o *ProcessFetchPartitionOptions) maybeKeepRecord(fp *FetchPartition, recor
 		abort = !o.KeepControlRecords
 	}
 	if !abort {
+		if rcBuff != nil {
+			rcBuff.add(1)
+			record.rcBatchBuffer = rcBuff
+		}
 		fp.Records = append(fp.Records, record)
 	}
 
