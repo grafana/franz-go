@@ -14,6 +14,8 @@ import (
 	"github.com/pierrec/lz4/v4"
 )
 
+const maxBytesBufferCap = 128 * 1024 * 1024 // 128MB
+
 var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 8<<10)) }}
 
 type codecType int8
@@ -273,8 +275,13 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 		return src, nil
 	}
 	out := byteBuffers.Get().(*bytes.Buffer)
-	out.Reset()
-	defer byteBuffers.Put(out)
+	defer func() {
+		if out.Cap() > maxBytesBufferCap {
+			return // avoid keeping large buffers in the pool
+		}
+		out.Reset()
+		byteBuffers.Put(out)
+	}()
 
 	switch compCodec {
 	case codecGzip:
