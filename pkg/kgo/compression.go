@@ -14,9 +14,9 @@ import (
 	"github.com/pierrec/lz4/v4"
 )
 
-const maxDecompressBufferSize = 32 * 1024 * 1024 // 32MB
+const maxPoolDecodedBufferSize = 32 * 1024 * 1024 // 32MB
 
-var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, maxDecompressBufferSize)) }}
+var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, maxPoolDecodedBufferSize)) }}
 
 type codecType int8
 
@@ -277,7 +277,7 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 	out := byteBuffers.Get().(*bytes.Buffer)
 	out.Reset()
 	defer func() {
-		if out.Cap() > maxDecompressBufferSize {
+		if out.Cap() > maxPoolDecodedBufferSize {
 			return // avoid keeping large buffers in the pool
 		}
 		byteBuffers.Put(out)

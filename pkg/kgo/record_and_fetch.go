@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"time"
 	"unsafe"
+
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // RecordHeader contains extra information that can be sent with Records.
@@ -161,6 +163,13 @@ type Record struct {
 	// This is used to allow reusing these buffers when record pooling has been enabled
 	// via EnableRecordsPool option.
 	rcBatchBuffer *rcBuffer[byte]
+
+	// rcRawRecordsBuffer is used to keep track of the raw record buffer that this record was
+	// derived from when consuming.
+	//
+	// This is used to allow reusing these buffers when record pooling has been enabled
+	// via EnableRecordsPool option.
+	rcRawRecordsBuffer *rcBuffer[kmsg.Record]
 }
 
 // Reuse releases the record back to the pool.
@@ -169,6 +178,9 @@ type Record struct {
 // Once this method has been called, any reference to the passed record should be considered invalid by the caller,
 // as it may be reused as a result of future calls to the PollFetches/PollRecords method.
 func (r *Record) Reuse() {
+	if r.rcRawRecordsBuffer != nil {
+		r.rcRawRecordsBuffer.release()
+	}
 	if r.rcBatchBuffer != nil {
 		r.rcBatchBuffer.release()
 	}

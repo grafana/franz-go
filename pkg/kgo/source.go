@@ -44,7 +44,7 @@ func (p recordsPool) put(r *Record) {
 // rcBuffer is a reference counted buffer.
 //
 // The internal buffer will be sent back to the pool after calling release
-// when the internal count reaches zero.
+// when the ref count reaches 0.
 type rcBuffer[T any] struct {
 	refCount atomic.Int32
 	buffer   []T
@@ -1541,11 +1541,18 @@ func (a aborter) trackAbortedPID(producerID int64) {
 // processing records to fetch part //
 //////////////////////////////////////
 
+var rawRecordsPool = pool.NewBucketedPool[kmsg.Record](32, 4096, 2, func(len int) []kmsg.Record {
+	return make([]kmsg.Record, len)
+})
+
 // readRawRecords reads n records from in and returns them, returning early if
 // there were partial records.
 func readRawRecords(n int, in []byte) []kmsg.Record {
-	rs := make([]kmsg.Record, n)
+	rs := rawRecordsPool.Get(n)
+	rs = rs[:n]
 	for i := 0; i < n; i++ {
+		rs[i] = kmsg.Record{}
+
 		length, used := kbin.Varint(in)
 		total := used + int(length)
 		if used == 0 || length < 0 || len(in) < total {
@@ -1609,9 +1616,13 @@ func processRecordBatch(
 		}
 	}()
 
-	var rcBuff *rcBuffer[byte]
+	var (
+		rcBatchBuff *rcBuffer[byte]
+		rcRawRecordsBuff *rcBuffer[kmsg.Record]
+	)
 	if decompressor.outBufferPool != nil {
-		rcBuff = newRCBuffer(rawRecords, decompressor.outBufferPool)
+		rcBatchBuff = newRCBuffer(rawRecords, decompressor.outBufferPool)
+		rcRawRecordsBuff = newRCBuffer(krecords, rawRecordsPool)
 	}
 
 	abortBatch := aborter.shouldAbortBatch(batch)
@@ -1624,7 +1635,7 @@ func processRecordBatch(
 			recordsPool,
 		)
 
-		o.maybeKeepRecord(fp, record, rcBuff, abortBatch)
+		o.maybeKeepRecord(fp, record, rcBatchBuff, rcRawRecordsBuff, abortBatch)
 		if abortBatch && record.Attrs.IsControl() {
 			// A control record has a key and a value where the key
 			// is int16 version and int16 type. Aborted records
@@ -1744,7 +1755,7 @@ func processV1Message(
 		return false
 	}
 	record := v1MessageToRecord(o.Topic, fp.Partition, message)
-	o.maybeKeepRecord(fp, record, nil, false)
+	o.maybeKeepRecord(fp, record, nil, nil, false)
 	return true
 }
 
@@ -1822,7 +1833,7 @@ func processV0Message(
 		return false
 	}
 	record := v0MessageToRecord(o.Topic, fp.Partition, message)
-	o.maybeKeepRecord(fp, record, nil, false)
+	o.maybeKeepRecord(fp, record, nil, nil, false)
 	return true
 }
 
@@ -1830,8 +1841,8 @@ func processV0Message(
 //
 // If the record is being aborted or the record is a control record and the
 // client does not want to keep control records, this does not keep the record.
-func (o *cursorOffsetNext) maybeKeepRecord(fp *FetchPartition, record *Record, rcBuff *rcBuffer[byte], abort bool) {
-			if record.Offset < o.Offset {
+func (o *cursorOffsetNext) maybeKeepRecord(fp *FetchPartition, record *Record, rcBatchBuff *rcBuffer[byte], rcRawRecordsBuff *rcBuffer[kmsg.Record], abort bool) {
+	if record.Offset < o.Offset {
 		// We asked for offset 5, but that was in the middle of a
 		// batch; we got offsets 0 thru 4 that we need to skip.
 		return
@@ -1842,9 +1853,13 @@ func (o *cursorOffsetNext) maybeKeepRecord(fp *FetchPartition, record *Record, r
 		abort = !o.KeepControlRecords
 	}
 	if !abort {
-		if rcBuff != nil {
-			rcBuff.add(1)
-			record.rcBatchBuffer = rcBuff
+		if rcBatchBuff != nil {
+			rcBatchBuff.add(1)
+			record.rcBatchBuffer = rcBatchBuff
+		}
+		if rcRawRecordsBuff != nil {
+			rcRawRecordsBuff.add(1)
+			record.rcRawRecordsBuffer = rcRawRecordsBuff
 		}
 		fp.Records = append(fp.Records, record)
 	}

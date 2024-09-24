@@ -458,7 +458,7 @@ func NewClient(opts ...Opt) (*Client, error) {
 	// via EnableRecordsPool option.
 	var decompressorPool *pool.BucketedPool[byte]
 	if cfg.recordsPool.p != nil {
-		decompressorPool = pool.NewBucketedPool[byte](1024, maxDecompressBufferSize, 2, func(size int) []byte {
+		decompressorPool = pool.NewBucketedPool[byte](1024, maxPoolDecodedBufferSize, 2, func(size int) []byte {
 			return make([]byte, 0, size)
 		})
 	}
