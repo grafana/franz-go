@@ -55,8 +55,8 @@ func newRCBuffer[T any](buffer []T, pool *pool.BucketedPool[T]) *rcBuffer[T] {
 	return &rcBuffer[T]{buffer: buffer, pool: pool}
 }
 
-func (b *rcBuffer[T]) add(delta int32) {
-	b.refCount.Add(delta)
+func (b *rcBuffer[T]) acquire() {
+	b.refCount.Add(1)
 }
 
 func (b *rcBuffer[T]) release() {
@@ -1854,11 +1854,11 @@ func (o *cursorOffsetNext) maybeKeepRecord(fp *FetchPartition, record *Record, r
 	}
 	if !abort {
 		if rcBatchBuff != nil {
-			rcBatchBuff.add(1)
+			rcBatchBuff.acquire()
 			record.rcBatchBuffer = rcBatchBuff
 		}
 		if rcRawRecordsBuff != nil {
-			rcRawRecordsBuff.add(1)
+			rcRawRecordsBuff.acquire()
 			record.rcRawRecordsBuffer = rcRawRecordsBuff
 		}
 		fp.Records = append(fp.Records, record)
