@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kmsg"
+
 	"github.com/twmb/franz-go/pkg/kbin"
 	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 type recordsPool struct{ p *sync.Pool }
@@ -133,6 +134,9 @@ type ProcessFetchPartitionOptions struct {
 
 	// Topic is used to populate the Partition field of each Record.
 	Partition int32
+
+	// recordsPool is for internal use only.
+	recordPool recordsPool
 }
 
 // cursor is where we are consuming from for an individual partition.
@@ -1499,7 +1503,6 @@ func processRecordBatch(
 	batch *kmsg.RecordBatch,
 	aborter aborter,
 	decompressor *decompressor,
-	recordsPool recordsPool,
 ) (int, int) {
 	if batch.Magic != 2 {
 		fp.Err = fmt.Errorf("unknown batch magic %d", batch.Magic)
@@ -1550,7 +1553,7 @@ func processRecordBatch(
 			fp.Partition,
 			batch,
 			&krecords[i],
-			recordsPool,
+			o.recordPool,
 		)
 		o.maybeKeepRecord(fp, record, abortBatch)
 
