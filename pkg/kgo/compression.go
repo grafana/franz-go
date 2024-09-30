@@ -16,7 +16,11 @@ import (
 
 const maxPoolDecodedBufferSize = 32 * 1024 * 1024 // 32MB
 
-var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, maxPoolDecodedBufferSize)) }}
+var decodedBufferPool = pool.NewBucketedPool[byte](1024, maxPoolDecodedBufferSize, 1.5, func(size int) []byte {
+	return make([]byte, size)
+})
+
+var byteBuffers = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 8<<10)) }}
 
 type codecType int8
 
@@ -274,13 +278,17 @@ func (d *decompressor) decompress(src []byte, codec byte) ([]byte, error) {
 	if compCodec == codecNone {
 		return src, nil
 	}
-	out := byteBuffers.Get().(*bytes.Buffer)
+	// This is a rough estimate, but it should be enough to avoid resizing the buffer
+	// multiple times
+	estimatedOutSize := len(src) * 2
+
+	out := bytes.NewBuffer(decodedBufferPool.Get(estimatedOutSize))
 	out.Reset()
 	defer func() {
 		if out.Cap() > maxPoolDecodedBufferSize {
 			return // avoid keeping large buffers in the pool
 		}
-		byteBuffers.Put(out)
+		decodedBufferPool.Put(out.Bytes())
 	}()
 
 	switch compCodec {
