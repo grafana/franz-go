@@ -275,7 +275,7 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 		return src, nil
 	}
 
-	out, buf, err := d.getOutputBuffer(src, compCodec, pool)
+	out, buf, err := d.getDecodedBuffer(src, compCodec, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 	}
 }
 
-func (d *decompressor) getOutputBuffer(src []byte, compCodec codecType, pool *pool.BucketedPool[byte]) (*bytes.Buffer, []byte, error) {
+func (d *decompressor) getDecodedBuffer(src []byte, compCodec codecType, pool *pool.BucketedPool[byte]) (*bytes.Buffer, []byte, error) {
 	var (
 		decodedBufSize int
 		err error
