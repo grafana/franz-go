@@ -280,7 +280,7 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 		return nil, err
 	}
 	defer func() {
-		if compCodec == codecSnappy || compCodec == codecLZ4 {
+		if compCodec == codecSnappy {
 			return
 		}
 		pool.Put(buf)
@@ -339,12 +339,6 @@ func (d *decompressor) getDecodedBuffer(src []byte, compCodec codecType, pool *p
 			return nil, nil, err
 		}
 
-	case codecLZ4:
-		unlz4 := d.unlz4Pool.Get().(*lz4.Reader)
-		defer d.unlz4Pool.Put(unlz4)
-		unlz4.Reset(bytes.NewReader(src))
-		decodedBufSize = unlz4.Size()
-
 	default:
 		// Make a guess at the output size.
 		decodedBufSize = len(src) * 2
@@ -355,7 +349,7 @@ func (d *decompressor) getDecodedBuffer(src []byte, compCodec codecType, pool *p
 }
 
 func (d *decompressor) copyDecodedBuffer(decoded []byte, compCodec codecType, pool *pool.BucketedPool[byte]) []byte {
-	if compCodec == codecSnappy || compCodec == codecLZ4 {
+	if compCodec == codecSnappy {
 		// We already know the actual size of the decoded buffer before decompression,
 		// so there's no need to copy the buffer.
 		return decoded
