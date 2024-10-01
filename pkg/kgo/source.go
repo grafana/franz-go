@@ -1539,7 +1539,7 @@ func (a aborter) trackAbortedPID(producerID int64) {
 // processing records to fetch part //
 //////////////////////////////////////
 
-var rawRecordsPool = pool.NewBucketedPool[kmsg.Record](32, 4096, 2, func(len int) []kmsg.Record {
+var rawRecordsPool = pool.NewBucketedPool[kmsg.Record](32, 16*1024, 2, func(len int) []kmsg.Record {
 	return make([]kmsg.Record, len)
 })
 
