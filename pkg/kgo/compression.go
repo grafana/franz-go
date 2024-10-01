@@ -279,7 +279,12 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 	if err != nil {
 		return nil, err
 	}
-	defer pool.Put(buf)
+	defer func() {
+		if compCodec == codecSnappy || compCodec == codecLZ4 {
+			return
+		}
+		pool.Put(buf)
+	}()
 
 	switch compCodec {
 	case codecGzip:
