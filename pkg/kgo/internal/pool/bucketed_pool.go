@@ -90,3 +90,8 @@ func (p *BucketedPool[T]) Put(s []T) {
 		return
 	}
 }
+
+// MaxSize returns the maximum size of a slice in the pool.
+func (p *BucketedPool[T]) MaxSize() int {
+	return p.sizes[len(p.sizes)-1]
+}

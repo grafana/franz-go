@@ -155,7 +155,7 @@ type Record struct {
 	// recordsPool is the pool that this record was fetched from, if any.
 	//
 	// When reused, record is returned to this pool.
-	recordsPool recordsPool
+	recordsPool *recordsPool
 
 	// rcBatchBuffer is used to keep track of the raw buffer that this record was
 	// derived from when consuming, after decompression.
@@ -178,13 +178,11 @@ type Record struct {
 // Once this method has been called, any reference to the passed record should be considered invalid by the caller,
 // as it may be reused as a result of future calls to the PollFetches/PollRecords method.
 func (r *Record) Reuse() {
-	if r.rcRawRecordsBuffer != nil {
+	if r.recordsPool != nil {
 		r.rcRawRecordsBuffer.release()
-	}
-	if r.rcBatchBuffer != nil {
 		r.rcBatchBuffer.release()
+		r.recordsPool.put(r)
 	}
-	r.recordsPool.put(r)
 }
 
 func (r *Record) userSize() int64 {
