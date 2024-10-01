@@ -351,8 +351,8 @@ func (d *decompressor) getDecodedBuffer(src []byte, compCodec codecType, pool *p
 
 func (d *decompressor) copyDecodedBuffer(decoded []byte, compCodec codecType, pool *pool.BucketedPool[byte]) []byte {
 	if compCodec == codecSnappy || compCodec == codecLZ4 {
-		// We already know the size of the decoded buffer, so there's no need to
-		// copy it.
+		// We already know the actual size of the decoded buffer before decompression,
+		// so there's no need to copy the buffer.
 		return decoded
 	}
 	out := pool.Get(len(decoded))
