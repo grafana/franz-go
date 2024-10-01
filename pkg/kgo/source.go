@@ -1851,8 +1851,9 @@ func (o *ProcessFetchPartitionOptions) maybeKeepRecord(fp *FetchPartition, recor
 	if !abort {
 		if rcBatchBuff != nil && rcRawRecordsBuff != nil {
 			rcBatchBuff.acquire()
-			rcRawRecordsBuff.acquire()
 			record.rcBatchBuffer = rcBatchBuff
+
+			rcRawRecordsBuff.acquire()
 			record.rcRawRecordsBuffer = rcRawRecordsBuff
 		}
 		fp.Records = append(fp.Records, record)
