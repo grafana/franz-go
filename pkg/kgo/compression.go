@@ -276,17 +276,11 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 	}
 	var out *bytes.Buffer
 
-	if pool != nil {
-		outBuf := pool.Get(pool.MaxSize())[:0]
-		defer func() {
-			pool.Put(outBuf)
-		}()
-		out = bytes.NewBuffer(outBuf)
-	} else {
-		out = byteBuffers.Get().(*bytes.Buffer)
-		out.Reset()
-		defer byteBuffers.Put(out)
-	}
+	outBuf := pool.Get(pool.MaxSize())[:0]
+	defer func() {
+		pool.Put(outBuf)
+	}()
+	out = bytes.NewBuffer(outBuf)
 
 	switch compCodec {
 	case codecGzip:

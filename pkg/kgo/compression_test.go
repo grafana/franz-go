@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/pierrec/lz4/v4"
+
+	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
 )
 
 // Regression test for #778.
@@ -156,7 +158,7 @@ func BenchmarkDecompress(b *testing.B) {
 		b.Run(fmt.Sprint(codec), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				d := newDecompressor()
-				d.decompress(w.Bytes(), byte(codec), nil)
+				d.decompress(w.Bytes(), byte(codec), pool.NewBucketedPool(1, 1<<16, 2, func(int) []byte { return make([]byte, 1<<16) }))
 			}
 		})
 		byteBuffers.Put(w)

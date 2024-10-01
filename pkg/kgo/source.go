@@ -159,11 +159,11 @@ type ProcessFetchPartitionOptions struct {
 	// Topic is used to populate the Partition field of each Record.
 	Partition int32
 
+	// DecompressBufferPool is a pool of buffers to use for decompressing batches.
+	DecompressBufferPool *pool.BucketedPool[byte]
+
 	// recordsPool is for internal use only.
 	recordPool *recordsPool
-
-	// decompressBufferPool is for internal use only.
-	decompressBufferPool *pool.BucketedPool[byte]
 }
 
 // cursor is where we are consuming from for an individual partition.
@@ -1329,8 +1329,8 @@ func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchRespon
 		IsolationLevel:       IsolationLevel{br.cl.cfg.isolationLevel},
 		Topic:                o.from.topic,
 		Partition:            o.from.partition,
+		DecompressBufferPool: decompressBufferPool,
 		recordPool:           recordsPool,
-		decompressBufferPool: decompressBufferPool,
 	}
 	observeMetrics := func(m FetchBatchMetrics) {
 		hooks.each(func(h Hook) {
@@ -1585,7 +1585,7 @@ func processRecordBatch(
 	rawRecords := batch.Records
 	if compression := byte(batch.Attributes & 0x0007); compression != 0 {
 		var err error
-		if rawRecords, err = decompressor.decompress(rawRecords, compression, o.decompressBufferPool); err != nil {
+		if rawRecords, err = decompressor.decompress(rawRecords, compression, o.DecompressBufferPool); err != nil {
 			return 0, 0 // truncated batch
 		}
 	}
@@ -1616,8 +1616,8 @@ func processRecordBatch(
 		rcBatchBuff      *rcBuffer[byte]
 		rcRawRecordsBuff *rcBuffer[kmsg.Record]
 	)
-	if o.decompressBufferPool != nil {
-		rcBatchBuff = newRCBuffer(rawRecords, o.decompressBufferPool)
+	if o.DecompressBufferPool != nil {
+		rcBatchBuff = newRCBuffer(rawRecords, o.DecompressBufferPool)
 		rcRawRecordsBuff = newRCBuffer(krecords, rawRecordsPool)
 	}
 
@@ -1656,7 +1656,7 @@ func processV1OuterMessage(o *ProcessFetchPartitionOptions, fp *FetchPartition, 
 		return 1, 0
 	}
 
-	rawInner, err := decompressor.decompress(message.Value, compression, nil)
+	rawInner, err := decompressor.decompress(message.Value, compression, o.DecompressBufferPool)
 	if err != nil {
 		return 0, 0 // truncated batch
 	}
@@ -1769,7 +1769,7 @@ func processV0OuterMessage(
 		return 1, 0 // uncompressed bytes is 0; set to compressed bytes on return
 	}
 
-	rawInner, err := decompressor.decompress(message.Value, compression, nil)
+	rawInner, err := decompressor.decompress(message.Value, compression, o.DecompressBufferPool)
 	if err != nil {
 		return 0, 0 // truncated batch
 	}

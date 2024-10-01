@@ -394,14 +394,11 @@ func (cfg *cfg) validate() error {
 	}
 	cfg.hooks = processedHooks
 
-	if cfg.recordsPool != nil {
-		// Assume a 2x compression ratio.
-		maxDecompressedBatchSize := int(cfg.maxBytes.load()) * 2
-
-		cfg.decompressBufferPool = pool.NewBucketedPool[byte](4096, maxDecompressedBatchSize, 2, func(sz int) []byte {
-			return make([]byte, sz)
-		})
-	}
+	// Assume a 2x compression ratio.
+	maxDecompressedBatchSize := int(cfg.maxBytes.load()) * 2
+	cfg.decompressBufferPool = pool.NewBucketedPool[byte](4096, maxDecompressedBatchSize, 2, func(sz int) []byte {
+		return make([]byte, sz)
+	})
 	return nil
 }
 

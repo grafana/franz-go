@@ -454,6 +454,7 @@ func NewClient(opts ...Opt) (*Client, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	cl := &Client{
 		cfg:       cfg,
 		opts:      opts,
