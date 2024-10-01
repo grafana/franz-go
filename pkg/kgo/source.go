@@ -1616,7 +1616,7 @@ func processRecordBatch(
 		rcBatchBuff      *rcBuffer[byte]
 		rcRawRecordsBuff *rcBuffer[kmsg.Record]
 	)
-	if o.DecompressBufferPool != nil {
+	if o.recordPool != nil {
 		rcBatchBuff = newRCBuffer(rawRecords, o.DecompressBufferPool)
 		rcRawRecordsBuff = newRCBuffer(krecords, rawRecordsPool)
 	}

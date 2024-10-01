@@ -274,9 +274,23 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 	if compCodec == codecNone {
 		return src, nil
 	}
-	var out *bytes.Buffer
+	var (
+		out *bytes.Buffer
+		decodedBufSize int
+	)
 
-	outBuf := pool.Get(pool.MaxSize())[:0]
+	if compCodec == codecSnappy {
+		var err error
+		decodedBufSize, err = s2.DecodedLen(src)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Make a guess at the output size.
+		decodedBufSize = len(src) * 2
+	}
+
+	outBuf := pool.Get(decodedBufSize)[:0]
 	defer func() {
 		pool.Put(outBuf)
 	}()
@@ -324,9 +338,6 @@ func (d *decompressor) decompress(src []byte, codec byte, pool *pool.BucketedPoo
 }
 
 func (d *decompressor) copyDecodedBuffer(decoded []byte, pool *pool.BucketedPool[byte]) []byte {
-	if pool == nil {
-		return append([]byte(nil), decoded...)
-	}
 	out := pool.Get(len(decoded))
 	return append(out[:0], decoded...)
 }
