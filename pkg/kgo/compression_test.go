@@ -10,8 +10,7 @@ import (
 	"testing"
 
 	"github.com/pierrec/lz4/v4"
-
-	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
+	"github.com/twmb/franz-go/pkg/kgo/pool"
 )
 
 // Regression test for #778.
