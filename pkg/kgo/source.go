@@ -14,7 +14,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kbin"
 	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kgo/internal/pool"
+	"github.com/twmb/franz-go/pkg/kgo/pool"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
