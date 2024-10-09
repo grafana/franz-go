@@ -349,6 +349,9 @@ func (d *decompressor) getDecodedBuffer(src []byte, compCodec codecType, pool *p
 }
 
 func (d *decompressor) copyDecodedBuffer(decoded []byte, compCodec codecType, pool *pool.BucketedPool[byte]) []byte {
+	if pool == nil {
+		return append([]byte(nil), decoded...)
+	}
 	if compCodec == codecSnappy {
 		// We already know the actual size of the decoded buffer before decompression,
 		// so there's no need to copy the buffer.
