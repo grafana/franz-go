@@ -406,7 +406,6 @@ func (s *sink) produce(sem <-chan struct{}) bool {
 
 	if txnReq != nil {
 		// txnReq can fail from:
-		// - TransactionAbortable
 		// - retry failure
 		// - auth failure
 		// - producer id mapping / epoch errors
@@ -418,10 +417,6 @@ func (s *sink) produce(sem <-chan struct{}) bool {
 		batchesStripped, err := s.doTxnReq(req, txnReq)
 		if err != nil {
 			switch {
-			case errors.Is(err, kerr.TransactionAbortable):
-				// If we get TransactionAbortable, we continue into producing.
-				// The produce will fail with the same error, and this is the
-				// only way to notify the user to abort the txn.
 			case isRetryableBrokerErr(err) || isDialNonTimeoutErr(err):
 				s.cl.bumpRepeatedLoadErr(err)
 				s.cl.cfg.logger.Log(LogLevelWarn, "unable to AddPartitionsToTxn due to retryable broker err, bumping client's buffered record load errors by 1 and retrying", "err", err)
@@ -436,8 +431,8 @@ func (s *sink) produce(sem <-chan struct{}) bool {
 				// with produce request vs. end txn (KAFKA-12671)
 				s.cl.failProducerID(id, epoch, err)
 				s.cl.cfg.logger.Log(LogLevelError, "fatal AddPartitionsToTxn error, failing all buffered records (it is possible the client can recover after EndTransaction)", "broker", logID(s.nodeID), "err", err)
-				return false
 			}
+			return false
 		}
 
 		// If we stripped everything, ensure we backoff to force a
@@ -568,7 +563,7 @@ func (s *sink) issueTxnReq(
 			continue
 		}
 		for _, partition := range topic.Partitions {
-			if err := kerr.ErrorForCode(partition.ErrorCode); err != nil && err != kerr.TransactionAbortable { // see below for txn abortable
+			if err := kerr.ErrorForCode(partition.ErrorCode); err != nil {
 				// OperationNotAttempted is set for all partitions that are authorized
 				// if any partition is unauthorized _or_ does not exist. We simply remove
 				// unattempted partitions and treat them as retryable.
@@ -859,20 +854,6 @@ func (s *sink) handleReqRespBatch(
 		// handling, but KIP-360 demonstrated that resetting sequence
 		// numbers is fundamentally unsafe, so we treat it like OOOSN.
 		//
-		// KAFKA-5793 specifically mentions for OOOSN "when you get it,
-		// it should always mean data loss". Sometime after KIP-360,
-		// Kafka changed the client to remove all places
-		// UnknownProducerID was returned, and then started referring
-		// to OOOSN as retryable. KIP-890 definitively says OOOSN is
-		// retryable. However, the Kafka source as of 24-10-10 still
-		// only retries OOOSN for batches that are NOT the expected
-		// next batch (i.e., it's next + 1, for when there are multiple
-		// in flight). With KIP-890, we still just disregard whatever
-		// supposedly non-retryable / actually-is-retryable error is
-		// returned if the LogStartOffset is _after_ what we previously
-		// produced. Specifically, this is step (4) in in wiki link
-		// within KAFKA-5793.
-		//
 		// InvalidMapping is similar to UnknownProducerID, but occurs
 		// when the txnal coordinator timed out our transaction.
 		//
@@ -899,22 +880,6 @@ func (s *sink) handleReqRespBatch(
 		// is only returned on produce, and then we can recover on other
 		// txn coordinator requests, which have PRODUCER_FENCED vs
 		// TRANSACTION_TIMED_OUT.
-
-		if batch.owner.lastAckedOffset >= 0 && rp.LogStartOffset > batch.owner.lastAckedOffset {
-			s.cl.cfg.logger.Log(LogLevelInfo, "partition prefix truncation to after our last produce caused the broker to forget us; no loss occurred, bumping producer epoch and resetting sequence numbers",
-				"broker", logID(s.nodeID),
-				"topic", topic,
-				"partition", rp.Partition,
-				"producer_id", producerID,
-				"producer_epoch", producerEpoch,
-				"err", err,
-			)
-			s.cl.failProducerID(producerID, producerEpoch, errReloadProducerID)
-			if debug {
-				fmt.Fprintf(b, "resetting@%d,%d(%s)}, ", rp.BaseOffset, nrec, err)
-			}
-			return true, false
-		}
 
 		if s.cl.cfg.txnID != nil || s.cl.cfg.stopOnDataLoss {
 			s.cl.cfg.logger.Log(LogLevelInfo, "batch errored, failing the producer ID",
@@ -986,7 +951,6 @@ func (s *sink) handleReqRespBatch(
 			)
 		} else {
 			batch.owner.okOnSink = true
-			batch.owner.lastAckedOffset = rp.BaseOffset + int64(len(batch.records))
 		}
 		s.cl.finishBatch(batch.recBatch, producerID, producerEpoch, rp.Partition, rp.BaseOffset, err)
 		didProduce = err == nil
@@ -1257,8 +1221,6 @@ type recBuf struct {
 	// at the end, we clear inflightOnSink and trigger the *current* sink
 	// to drain.
 	inflight uint8
-
-	lastAckedOffset int64 // last ProduceResponse's BaseOffset + how many records we produced
 
 	topicPartitionData // updated in metadata migrateProductionTo (same spot sink is updated)
 
@@ -2095,7 +2057,7 @@ func (b *recBatch) tryBuffer(pr promisedRec, produceVersion, maxBatchBytes int32
 //////////////
 
 func (*produceRequest) Key() int16           { return 0 }
-func (*produceRequest) MaxVersion() int16    { return 11 }
+func (*produceRequest) MaxVersion() int16    { return 10 }
 func (p *produceRequest) SetVersion(v int16) { p.version = v }
 func (p *produceRequest) GetVersion() int16  { return p.version }
 func (p *produceRequest) IsFlexible() bool   { return p.version >= 9 }

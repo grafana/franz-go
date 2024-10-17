@@ -311,11 +311,11 @@ func (e *errUnknownCoordinator) Error() string {
 // consumer group member was kicked from the group or was never able to join
 // the group.
 type ErrGroupSession struct {
-	Err error
+	err error
 }
 
 func (e *ErrGroupSession) Error() string {
-	return fmt.Sprintf("unable to join group session: %v", e.Err)
+	return fmt.Sprintf("unable to join group session: %v", e.err)
 }
 
-func (e *ErrGroupSession) Unwrap() error { return e.Err }
+func (e *ErrGroupSession) Unwrap() error { return e.err }

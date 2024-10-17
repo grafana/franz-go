@@ -34,8 +34,6 @@ type ResponseError struct {
 	Method string `json:"-"`
 	// URL is the full path that was requested that resulted in this error.
 	URL string `json:"-"`
-	// StatusCode is the status code that was returned for this error.
-	StatusCode int `json:"-"`
 	// Raw contains the raw response body.
 	Raw []byte `json:"-"`
 
@@ -57,7 +55,6 @@ type Client struct {
 	httpcl    *http.Client
 	ua        string
 	defParams Param
-	opts      []ClientOpt
 
 	basicAuth *struct {
 		user string
@@ -72,7 +69,6 @@ func NewClient(opts ...ClientOpt) (*Client, error) {
 		urls:   []string{"http://localhost:8081"},
 		httpcl: &http.Client{Timeout: 5 * time.Second},
 		ua:     "franz-go",
-		opts:   opts,
 	}
 
 	for _, opt := range opts {
@@ -84,13 +80,6 @@ func NewClient(opts ...ClientOpt) (*Client, error) {
 	}
 
 	return cl, nil
-}
-
-// Opts returns the options that were used to create this client. This can be
-// as a base to generate a new client, where you can add override options to
-// the end of the original input list.
-func (cl *Client) Opts() []ClientOpt {
-	return cl.opts
 }
 
 func (cl *Client) get(ctx context.Context, path string, into any) error {
@@ -160,13 +149,9 @@ start:
 
 	if resp.StatusCode >= 300 {
 		e := &ResponseError{
-			Method:     method,
-			URL:        reqURL,
-			StatusCode: resp.StatusCode,
-			Raw:        bytes.TrimSpace(body),
-		}
-		if len(e.Raw) == 0 {
-			e.Message = "no response"
+			Method: method,
+			URL:    reqURL,
+			Raw:    body,
 		}
 		_ = json.Unmarshal(body, e) // best effort
 		return e
